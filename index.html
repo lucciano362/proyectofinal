@@ -1,0 +1,340 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teachable Machine</title>
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      background: linear-gradient(135deg, #eef2ff, #f8fafc);
+      min-height: 100vh;
+    }
+
+    .contenedor {
+      max-width: 900px;
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .encabezado {
+      background: linear-gradient(120deg, #4f46e5, #7c3aed);
+      color: white;
+    }
+
+    #webcam-container canvas {
+      width: 100%;
+      max-width: 420px;
+      border-radius: 15px;
+    }
+
+    .resultado {
+      background: #f1f5f9;
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container py-5">
+
+  <div class="card contenedor shadow-lg mx-auto">
+
+    <div class="encabezado text-center p-5">
+      <h1 class="fw-bold">Teachable Machine</h1>
+      <p>Reconocimiento de imágenes</p>
+    </div>
+
+    <div class="card-body p-4 p-md-5">
+
+      <div class="text-center mb-4">
+        <span id="estado" class="badge bg-secondary">
+          Modelo detenido
+        </span>
+      </div>
+
+      <!-- BOTONES -->
+      <div class="text-center mb-4">
+
+        <button id="iniciar"
+          class="btn btn-success btn-lg me-2"
+          onclick="iniciarModelo()">
+          ▶ Iniciar modelo
+        </button>
+
+        <button id="detener"
+          class="btn btn-danger btn-lg"
+          onclick="detenerModelo()"
+          disabled>
+          ■ Detener modelo
+        </button>
+
+      </div>
+
+      <div class="row g-4">
+
+        <!-- CAMARA -->
+        <div class="col-md-6 text-center">
+
+          <h5 class="fw-bold mb-3">Cámara</h5>
+
+          <div id="webcam-container"
+            class="bg-light rounded-4 p-3">
+
+            <p class="text-secondary">
+              Presiona iniciar para activar la cámara.
+            </p>
+
+          </div>
+
+        </div>
+
+        <!-- RESULTADOS -->
+        <div class="col-md-6">
+
+          <h5 class="fw-bold mb-3">
+            Resultados
+          </h5>
+
+          <div class="alert alert-primary">
+            <small>CLASE DETECTADA</small>
+
+            <h4 id="prediccion" class="fw-bold mt-2">
+              Esperando...
+            </h4>
+          </div>
+
+          <div id="resultados">
+            <p class="text-secondary">
+              Aquí aparecerán las predicciones.
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
+      <div id="error" class="alert alert-warning mt-4 d-none"></div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- LIBRERIAS -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+<script>
+
+  // UBICACION DEL MODELO
+  const URL = "./model/";
+
+  let modelo;
+  let webcam;
+  let activo = false;
+  let animationId;
+
+  async function iniciarModelo() {
+
+    if (activo) return;
+
+    const botonIniciar = document.getElementById("iniciar");
+    const botonDetener = document.getElementById("detener");
+    const estado = document.getElementById("estado");
+    const error = document.getElementById("error");
+
+    botonIniciar.disabled = true;
+    error.classList.add("d-none");
+    estado.textContent = "Cargando modelo...";
+
+    try {
+
+      // CARGAR MODELO
+      if (!modelo) {
+        modelo = await tmImage.load(
+          URL + "model.json",
+          URL + "metadata.json"
+        );
+      }
+
+      // ACTIVAR CAMARA
+      webcam = new tmImage.Webcam(320, 320, true);
+
+      await webcam.setup();
+      await webcam.play();
+
+      document.getElementById("webcam-container").innerHTML = "";
+
+      document.getElementById("webcam-container")
+        .appendChild(webcam.canvas);
+
+      // CREAR RESULTADOS
+      const contenedor = document.getElementById("resultados");
+
+      contenedor.innerHTML = "";
+
+      for (let i = 0; i < modelo.getTotalClasses(); i++) {
+
+        const elemento = document.createElement("div");
+
+        elemento.className = "resultado";
+
+        const nombre = document.createElement("div");
+        nombre.className = "fw-bold";
+
+        nombre.textContent = modelo.getClassLabels()[i];
+
+        const porcentaje = document.createElement("div");
+        porcentaje.className = "small text-secondary";
+        porcentaje.textContent = "0%";
+
+        const barra = document.createElement("div");
+        barra.className = "progress mt-2";
+
+        const progreso = document.createElement("div");
+        progreso.className = "progress-bar";
+        progreso.style.width = "0%";
+
+        barra.appendChild(progreso);
+
+        elemento.appendChild(nombre);
+        elemento.appendChild(porcentaje);
+        elemento.appendChild(barra);
+
+        contenedor.appendChild(elemento);
+
+      }
+
+      activo = true;
+
+      botonDetener.disabled = false;
+
+      estado.textContent = "Modelo activo";
+      estado.className = "badge bg-success";
+
+      predecir();
+
+    } catch (err) {
+
+      console.error(err);
+
+      if (webcam) {
+        webcam.stop();
+        webcam = null;
+      }
+
+      botonIniciar.disabled = false;
+      botonDetener.disabled = true;
+
+      estado.textContent = "Error al iniciar";
+      estado.className = "badge bg-danger";
+
+      error.textContent =
+        "No se pudo iniciar. Verifica los archivos del modelo y el permiso de cámara. Abre index.html con Live Server.";
+
+      error.classList.remove("d-none");
+
+    }
+
+  }
+
+  // RECONOCIMIENTO
+  async function predecir() {
+
+    if (!activo || !webcam) return;
+
+    webcam.update();
+
+    try {
+
+      const predicciones = await modelo.predict(webcam.canvas);
+
+      predicciones.sort(
+        (a, b) => b.probability - a.probability
+      );
+
+      document.getElementById("prediccion").textContent =
+        predicciones[0].className;
+
+      const elementos =
+        document.getElementById("resultados").children;
+
+      predicciones.forEach(prediccion => {
+
+        for (const elemento of elementos) {
+
+          if (
+            elemento.children[0].textContent === prediccion.className
+          ) {
+
+            const porcentaje =
+              (prediccion.probability * 100).toFixed(1);
+
+            elemento.children[1].textContent =
+              porcentaje + "%";
+
+            elemento.children[2].children[0].style.width =
+              porcentaje + "%";
+
+          }
+
+        }
+
+      });
+
+    } catch (err) {
+      console.error(err);
+    }
+
+    if (activo) {
+      animationId = requestAnimationFrame(predecir);
+    }
+
+  }
+
+  // DETENER MODELO
+  function detenerModelo() {
+
+    activo = false;
+
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+
+    if (webcam) {
+      webcam.stop();
+      webcam = null;
+    }
+
+    document.getElementById("webcam-container").innerHTML =
+      '<p class="text-secondary">Cámara detenida.</p>';
+
+    document.getElementById("prediccion").textContent =
+      "Modelo detenido";
+
+    document.getElementById("resultados").innerHTML =
+      '<p class="text-secondary">Inicia el modelo para ver resultados.</p>';
+
+    document.getElementById("iniciar").disabled = false;
+    document.getElementById("detener").disabled = true;
+
+    const estado = document.getElementById("estado");
+
+    estado.textContent = "Modelo detenido";
+    estado.className = "badge bg-secondary";
+
+  }
+
+</script>
+
+</body>
+</html>
